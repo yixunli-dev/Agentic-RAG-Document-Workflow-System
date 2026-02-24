@@ -21,3 +21,16 @@
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# env
+.env
+server/.env
+
+# backend deps
+server/node_modules
+
+# runtime uploads (if generated)
+server/uploads
+
+# mac zip junk
+__MACOSX
