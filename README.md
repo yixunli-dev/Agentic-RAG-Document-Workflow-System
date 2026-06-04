@@ -1,70 +1,177 @@
-# Getting Started with Create React App
+# Agentic RAG Document Workflow System
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A production-style React frontend for an agentic Retrieval-Augmented Generation document workflow platform. The application simulates how an enterprise document intelligence product can ingest PDFs, route user intent, retrieve grounded evidence, generate cited answers, run verification checks, surface guardrail warnings, and expose evaluation metrics.
 
-## Available Scripts
+This repository is intentionally frontend-only. It uses mocked data and mocked API functions so the interface can be reviewed, tested, and extended without requiring OpenAI, LangChain, LangGraph, a vector database, or a backend service.
 
-In the project directory, you can run:
+## Highlights
 
-### `npm start`
+- PDF document intake experience with mocked chunking, embedding, and indexing status
+- Query workspace for document analysis, comparison, extraction, and risk review
+- Simulated multi-agent workflow trace with step status, latency, component/model metadata, and expandable details
+- Cited answer card with clickable inline citation markers
+- Retrieved source chunks table with relevance scoring
+- Guardrail panel for citation coverage, unsupported claims, prompt injection, sensitive actions, and context sufficiency
+- Human review state with local approve/regenerate/edit actions
+- Evaluation dashboard with recall, faithfulness, citation accuracy, latency, cost, and guardrail metrics
+- Settings page for model selection, retrieval top-k, guardrails, review, trace logging, and temperature
+- Vite-powered React app with Vitest test coverage
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Product Scope
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+The goal is not to build a basic "chat with PDF" demo. The interface is designed to look and behave like an AI document workflow platform that could later connect to a real FastAPI backend and agent runtime.
 
-### `npm test`
+Current implementation:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+- Frontend: React + Vite
+- UI system: Ant Design
+- Data: mocked local datasets
+- Agent execution: mocked async workflow simulation
+- Backend: not implemented
 
-### `npm run build`
+Out of scope for this version:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- Real PDF parsing
+- Real embeddings
+- Real vector search
+- Real LLM calls
+- Real LangChain or LangGraph orchestration
+- Real authentication, billing, or persistent storage
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Tech Stack
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+| Area | Technology |
+| --- | --- |
+| Framework | React 18 |
+| Build Tool | Vite |
+| UI Components | Ant Design |
+| Testing | Vitest, Testing Library, jsdom |
+| Styling | CSS modules/global CSS |
+| Mock Runtime | Local JavaScript mock API |
 
-### `npm run eject`
+## Architecture
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+```text
+src/
+  App.jsx          Main application shell, pages, and UI panels
+  App.css          Dashboard layout and visual styling
+  main.jsx         Vite React entrypoint
+  mockApi.js       Mock upload and agent-run functions
+  mockData.js      Mock documents, workflow steps, citations, chunks, guardrails, eval cases
+  App.test.jsx     Workspace, agent run, evaluation, and settings tests
+  setupTests.js    jsdom test environment setup
+```
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+The frontend is organized around a future backend contract:
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+1. Upload events create document metadata in local state.
+2. Query submission calls `runMockAgent`.
+3. The mock runner emits staged workflow progress.
+4. The UI renders answer, citations, chunks, metrics, and guardrail results.
+5. Review actions update local UI state only.
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+When integrating a real backend, `mockApi.js` is the primary replacement point.
 
-## Learn More
+## Agent Workflow Simulation
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+The application models the following execution trace:
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+1. Intent Router
+2. Retrieval Agent
+3. Answer Agent
+4. Citation Agent
+5. Verifier Agent
+6. Guardrail Check
+7. Human Review
+8. Final Response
 
-### Code Splitting
+Each step includes:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+- Status
+- Description
+- Latency
+- Selected model or component
+- Expandable implementation details
 
-### Analyzing the Bundle Size
+## Getting Started
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### Prerequisites
 
-### Making a Progressive Web App
+- Node.js 18+
+- npm
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+### Install dependencies
 
-### Advanced Configuration
+```bash
+npm install
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+### Start the development server
 
-### Deployment
+```bash
+npm run dev
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+Vite will print a local URL, usually:
 
-### `npm run build` fails to minify
+```text
+http://localhost:5173/
+```
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+If port `5173` is unavailable, Vite may choose another port. Use the URL printed in your terminal.
+
+### Build for production
+
+```bash
+npm run build
+```
+
+The production build is emitted to `dist/`.
+
+### Run tests
+
+```bash
+npm test
+```
+
+The test suite verifies:
+
+- Main workspace rendering
+- Mock agent workflow execution
+- Cited answer and review state
+- Evaluation dashboard
+- Settings page controls
+
+## Backend Integration Plan
+
+This frontend is structured so it can later connect to a FastAPI backend with minimal UI rewrites.
+
+Recommended backend endpoints:
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /documents/upload` | Upload PDFs and return document metadata |
+| `GET /documents` | List indexed documents |
+| `POST /agent/runs` | Start an agent workflow for a query |
+| `GET /agent/runs/{run_id}` | Poll run status and trace events |
+| `GET /agent/runs/{run_id}/citations` | Fetch citation mappings |
+| `GET /agent/runs/{run_id}/chunks` | Fetch retrieved chunks |
+| `GET /evaluations/summary` | Fetch evaluation metrics |
+
+Suggested replacement path:
+
+1. Replace `runMockAgent` in `src/mockApi.js` with real API calls.
+2. Stream or poll workflow step updates into the existing trace panel.
+3. Map backend response objects into the current citation, chunk, guardrail, and metrics shapes.
+4. Add authentication and persistence after the workflow contract is stable.
+
+## Engineering Notes
+
+- All product behavior is mocked by design.
+- The repository contains a legacy `server/` directory from the original project, but the current application does not depend on it.
+- `dist/` is ignored because it is a generated Vite build artifact.
+- Large bundle warnings may appear because Ant Design is a full UI component system. The app still builds successfully; future optimization can use route-level code splitting and manual chunks.
+
+## Repository
+
+GitHub: [yixunli-dev/Agentic-RAG-Document-Workflow-System](https://github.com/yixunli-dev/Agentic-RAG-Document-Workflow-System)
