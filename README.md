@@ -1,21 +1,23 @@
 # Agentic RAG Document Workflow System
 
-A production-style React frontend for an agentic Retrieval-Augmented Generation document workflow platform. The application simulates how an enterprise document intelligence product can ingest PDFs, route user intent, retrieve grounded evidence, generate cited answers, run verification checks, surface guardrail warnings, and expose evaluation metrics.
+A production-style full-stack application for an agentic Retrieval-Augmented Generation document workflow platform. The application lets users upload PDFs, ask document-related questions, retrieve grounded evidence, generate cited answers, run verification checks, surface guardrail warnings, and expose evaluation metrics.
 
-This repository is intentionally frontend-only. It uses mocked data and mocked API functions so the interface can be reviewed, tested, and extended without requiring OpenAI, LangChain, LangGraph, a vector database, or a backend service.
+This version is intentionally built as a no-paid-API MVP. It uses FastAPI, local file storage, SQLite, PDF text extraction, and lightweight keyword retrieval. It does not require OpenAI, LangChain, LangGraph, or a hosted vector database.
 
 ## Highlights
 
-- PDF document intake experience with mocked chunking, embedding, and indexing status
+- PDF document intake experience backed by a real FastAPI upload endpoint
+- Local PDF text extraction, chunking, and SQLite indexing
 - Query workspace for document analysis, comparison, extraction, and risk review
-- Simulated multi-agent workflow trace with step status, latency, component/model metadata, and expandable details
+- Agent workflow trace with step status, latency, component/model metadata, and expandable details
 - Cited answer card with clickable inline citation markers
-- Retrieved source chunks table with relevance scoring
+- Retrieved source chunks table with local relevance scoring
 - Guardrail panel for citation coverage, unsupported claims, prompt injection, sensitive actions, and context sufficiency
 - Human review state with local approve/regenerate/edit actions
 - Evaluation dashboard with recall, faithfulness, citation accuracy, latency, cost, and guardrail metrics
 - Settings page for model selection, retrieval top-k, guardrails, review, trace logging, and temperature
-- Vite-powered React app with Vitest test coverage
+- Vite-powered React app with Vitest coverage
+- FastAPI service tests with pytest
 
 ## Product Scope
 
@@ -25,16 +27,17 @@ Current implementation:
 
 - Frontend: React + Vite
 - UI system: Ant Design
-- Data: mocked local datasets
-- Agent execution: mocked async workflow simulation
-- Backend: not implemented
+- Backend: FastAPI
+- Storage: local uploads folder + SQLite
+- Retrieval: local keyword-overlap retrieval
+- Agent execution: deterministic no-cost workflow service
+- PDF parsing: `pypdf`
 
 Out of scope for this version:
 
-- Real PDF parsing
+- Real LLM calls
 - Real embeddings
 - Real vector search
-- Real LLM calls
 - Real LangChain or LangGraph orchestration
 - Real authentication, billing, or persistent storage
 
@@ -45,9 +48,13 @@ Out of scope for this version:
 | Framework | React 18 |
 | Build Tool | Vite |
 | UI Components | Ant Design |
+| API | FastAPI |
+| Storage | SQLite, local filesystem |
+| PDF Parsing | pypdf |
 | Testing | Vitest, Testing Library, jsdom |
+| Backend Testing | pytest, FastAPI TestClient |
 | Styling | CSS modules/global CSS |
-| Mock Runtime | Local JavaScript mock API |
+| Retrieval | Local lexical scoring |
 
 ## Architecture
 
@@ -56,21 +63,26 @@ src/
   App.jsx          Main application shell, pages, and UI panels
   App.css          Dashboard layout and visual styling
   main.jsx         Vite React entrypoint
-  mockApi.js       Mock upload and agent-run functions
-  mockData.js      Mock documents, workflow steps, citations, chunks, guardrails, eval cases
+  apiClient.js     Frontend API adapter for FastAPI endpoints
+  fixtures.js      UI fixtures for workflow labels, settings, and evaluation cases
   App.test.jsx     Workspace, agent run, evaluation, and settings tests
   setupTests.js    jsdom test environment setup
+
+backend/
+  app.py           FastAPI app and HTTP endpoints
+  agent_service.py SQLite store, chunking, retrieval, guardrails, and response assembly
+  tests/           Backend service and endpoint tests
 ```
 
-The frontend is organized around a future backend contract:
+The frontend is organized around a stable backend contract:
 
 1. Upload events create document metadata in local state.
-2. Query submission calls `runMockAgent`.
-3. The mock runner emits staged workflow progress.
+2. Query submission calls `runMockAgent`, which now posts to FastAPI.
+3. The frontend emits staged workflow progress for the trace UI.
 4. The UI renders answer, citations, chunks, metrics, and guardrail results.
 5. Review actions update local UI state only.
 
-When integrating a real backend, `mockApi.js` is the primary replacement point.
+`src/apiClient.js` owns the frontend-to-FastAPI boundary for document uploads and agent workflow runs.
 
 ## Agent Workflow Simulation
 
@@ -99,6 +111,7 @@ Each step includes:
 
 - Node.js 18+
 - npm
+- Python 3.9+
 
 ### Install dependencies
 
@@ -106,7 +119,31 @@ Each step includes:
 npm install
 ```
 
-### Start the development server
+### Install backend dependencies
+
+```bash
+python3 -m pip install -r requirements.txt
+```
+
+### Start the backend API
+
+```bash
+npm run api
+```
+
+FastAPI runs on:
+
+```text
+http://127.0.0.1:8000
+```
+
+Swagger docs:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
+### Start the frontend
 
 ```bash
 npm run dev
@@ -119,6 +156,30 @@ http://localhost:5173/
 ```
 
 If port `5173` is unavailable, Vite may choose another port. Use the URL printed in your terminal.
+
+### Start frontend and backend together
+
+```bash
+npm run dev:full
+```
+
+### Try the sample PDF
+
+Upload this file from the Workspace page:
+
+```text
+sample-documents/agentic-rag-sample-policy.pdf
+```
+
+Example questions:
+
+```text
+Compare the refund policy and identify risky clauses.
+```
+
+```text
+Extract parties, payment terms, refund window, and risky clauses.
+```
 
 ### Build for production
 
@@ -134,6 +195,12 @@ The production build is emitted to `dist/`.
 npm test
 ```
 
+### Run backend tests
+
+```bash
+python3 -m pytest backend/tests
+```
+
 The test suite verifies:
 
 - Main workspace rendering
@@ -142,33 +209,38 @@ The test suite verifies:
 - Evaluation dashboard
 - Settings page controls
 
-## Backend Integration Plan
+## API Contract
 
-This frontend is structured so it can later connect to a FastAPI backend with minimal UI rewrites.
-
-Recommended backend endpoints:
+The React app currently calls these FastAPI endpoints:
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /documents/upload` | Upload PDFs and return document metadata |
-| `GET /documents` | List indexed documents |
-| `POST /agent/runs` | Start an agent workflow for a query |
-| `GET /agent/runs/{run_id}` | Poll run status and trace events |
-| `GET /agent/runs/{run_id}/citations` | Fetch citation mappings |
-| `GET /agent/runs/{run_id}/chunks` | Fetch retrieved chunks |
-| `GET /evaluations/summary` | Fetch evaluation metrics |
+| `GET /api/health` | Backend health check |
+| `POST /api/documents/upload` | Upload a PDF and return document metadata |
+| `GET /api/documents` | List indexed documents |
+| `POST /api/agent/runs` | Run retrieval, answer assembly, citations, guardrails, and metrics |
 
-Suggested replacement path:
+The response from `POST /api/agent/runs` keeps the frontend contract:
 
-1. Replace `runMockAgent` in `src/mockApi.js` with real API calls.
-2. Stream or poll workflow step updates into the existing trace panel.
-3. Map backend response objects into the current citation, chunk, guardrail, and metrics shapes.
-4. Add authentication and persistence after the workflow contract is stable.
+- `answer`
+- `citations`
+- `chunks`
+- `guardrails`
+- `metrics`
+
+## Future Upgrade Path
+
+The no-cost backend is intentionally simple. A production upgrade can replace individual layers without changing the UI:
+
+1. Replace keyword scoring with embeddings and a vector database.
+2. Replace deterministic answer assembly with an LLM call.
+3. Stream trace events from the backend instead of simulating progress in the frontend.
+4. Add run persistence, authentication, user workspaces, and deployment configuration.
 
 ## Engineering Notes
 
-- All product behavior is mocked by design.
-- The repository contains a legacy `server/` directory from the original project, but the current application does not depend on it.
+- The current backend is free to run locally and does not call paid AI APIs.
+- `backend/data/` is ignored because it stores generated SQLite and uploaded files.
 - `dist/` is ignored because it is a generated Vite build artifact.
 - Large bundle warnings may appear because Ant Design is a full UI component system. The app still builds successfully; future optimization can use route-level code splitting and manual chunks.
 

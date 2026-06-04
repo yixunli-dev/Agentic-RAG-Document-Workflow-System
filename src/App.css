@@ -4,7 +4,7 @@
 }
 
 .sidebar {
-  background: #111827 !important;
+  background: #0f172a !important;
   color: #ffffff;
   min-height: 100vh;
   position: sticky;
@@ -18,13 +18,29 @@
 
 .sidebar .ant-menu {
   background: transparent;
-  color: #cbd5e1;
   border-inline-end: 0 !important;
 }
 
-.sidebar .ant-menu-item-selected {
-  background: #2563eb !important;
+.sidebar .ant-menu-item {
+  color: #dbeafe !important;
+  font-weight: 600;
+  margin-inline: 12px;
+  width: calc(100% - 24px);
+}
+
+.sidebar .ant-menu-title-content {
+  color: inherit !important;
+}
+
+.sidebar .ant-menu-item:hover {
+  background: rgba(59, 130, 246, 0.18) !important;
   color: #ffffff !important;
+}
+
+.sidebar .ant-menu-item-selected {
+  background: #3b82f6 !important;
+  color: #ffffff !important;
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.35);
 }
 
 .sidebar-footer {
@@ -35,6 +51,26 @@
   left: 20px;
   position: absolute;
   right: 20px;
+}
+
+.sidebar-footer .ant-typography {
+  color: #bfdbfe !important;
+  font-weight: 600;
+}
+
+.sidebar-footer .ant-segmented {
+  background: rgba(15, 23, 42, 0.75);
+  border: 1px solid rgba(191, 219, 254, 0.24);
+  color: #dbeafe;
+}
+
+.sidebar-footer .ant-segmented-item-label {
+  color: #dbeafe;
+}
+
+.sidebar-footer .ant-segmented-item-selected .ant-segmented-item-label {
+  color: #0f172a;
+  font-weight: 700;
 }
 
 .content-shell {

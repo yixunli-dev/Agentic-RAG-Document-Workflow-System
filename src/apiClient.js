@@ -1,0 +1,49 @@
+import { workflowSteps } from "./fixtures";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+
+const assertOk = async (response) => {
+  if (response.ok) return response;
+  let message = "API request failed";
+  try {
+    const body = await response.json();
+    message = body.detail || message;
+  } catch {
+    message = response.statusText || message;
+  }
+  throw new Error(message);
+};
+
+export const uploadDocument = async (file) => {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await assertOk(
+    await fetch(`${API_BASE_URL}/api/documents/upload`, {
+      method: "POST",
+      body: formData,
+    })
+  );
+
+  return response.json();
+};
+
+export const runAgentWorkflow = async (query, settings, onStep) => {
+  workflowSteps.forEach((step, index) => {
+    setTimeout(() => onStep(index), 180 * (index + 1));
+  });
+
+  const response = await assertOk(
+    await fetch(`${API_BASE_URL}/api/agent/runs`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, settings }),
+    })
+  );
+
+  const result = await response.json();
+  onStep(workflowSteps.length);
+  return result;
+};

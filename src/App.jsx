@@ -28,15 +28,12 @@ import {
 } from "antd";
 import "./App.css";
 import {
-  citations as defaultCitations,
   evaluationCases,
   examplePrompts,
-  guardrails as defaultGuardrails,
   initialDocuments,
-  retrievedChunks,
   workflowSteps,
-} from "./mockData";
-import { createMockDocument, runMockAgent } from "./mockApi";
+} from "./fixtures";
+import { runAgentWorkflow, uploadDocument } from "./apiClient";
 
 const { Content, Sider } = Layout;
 const { Dragger } = Upload;
@@ -59,9 +56,11 @@ const statusColor = {
 
 const getStepStatus = (index, activeIndex, runStatus) => {
   if (runStatus === "Idle") return "pending";
-  if (index < activeIndex) return index === 5 || index === 6 ? "warning" : "completed";
+  if (index < activeIndex)
+    return index === 5 || index === 6 ? "warning" : "completed";
   if (index === activeIndex && runStatus === "Running") return "running";
-  if (runStatus === "Needs Review" || runStatus === "Completed") return index === 5 || index === 6 ? "warning" : "completed";
+  if (runStatus === "Needs Review" || runStatus === "Completed")
+    return index === 5 || index === 6 ? "warning" : "completed";
   return "pending";
 };
 
@@ -70,9 +69,12 @@ function DocumentUploadPanel({ documents, setDocuments }) {
     accept: ".pdf,application/pdf",
     multiple: true,
     showUploadList: false,
-    beforeUpload: (file, fileList) => {
+    beforeUpload: async (file, fileList) => {
       if (fileList[0]?.uid === file.uid) {
-        setDocuments((current) => [...current, ...fileList.map(createMockDocument)]);
+        const uploadedDocuments = await Promise.all(
+          fileList.map(uploadDocument),
+        );
+        setDocuments((current) => [...uploadedDocuments, ...current]);
       }
       return false;
     },
@@ -82,8 +84,13 @@ function DocumentUploadPanel({ documents, setDocuments }) {
     <Card title="Document Intake" className="panel-card">
       <Dragger {...uploadProps}>
         <p className="upload-glyph">PDF</p>
-        <p className="ant-upload-text">Drag and drop PDF files into the document workspace</p>
-        <p className="ant-upload-hint">Mock ingestion creates chunk and embedding metadata only.</p>
+        <p className="ant-upload-text">
+          Drag and drop PDF files into the document workspace
+        </p>
+        <p className="ant-upload-hint">
+          FastAPI stores the PDF, extracts text, chunks it, and indexes it
+          locally.
+        </p>
       </Dragger>
       <div className="document-list">
         {documents.map((document) => (
@@ -134,7 +141,10 @@ function AnswerCard({ result, selectedCitation, setSelectedCitation }) {
     return (
       <Card className="answer-card empty-state">
         <Title level={4}>No run yet</Title>
-        <Paragraph>Upload documents and run a question to see grounded answers, citations, and review signals.</Paragraph>
+        <Paragraph>
+          Upload documents and run a question to see grounded answers,
+          citations, and review signals.
+        </Paragraph>
       </Card>
     );
   }
@@ -146,7 +156,10 @@ function AnswerCard({ result, selectedCitation, setSelectedCitation }) {
       <Paragraph className="answer-text">
         {answerParts.map((part, index) => {
           const match = part.match(/\[(\d+)\]/);
-          if (!match) return <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>;
+          if (!match)
+            return (
+              <React.Fragment key={`${part}-${index}`}>{part}</React.Fragment>
+            );
           const citationId = Number(match[1]);
           return (
             <button
@@ -170,7 +183,10 @@ function AnswerCard({ result, selectedCitation, setSelectedCitation }) {
           <Statistic title="Cost Estimate" value={result.metrics.cost} />
         </Col>
         <Col xs={12} md={6}>
-          <Statistic title="Citation Accuracy" value={result.metrics.citationAccuracy} />
+          <Statistic
+            title="Citation Accuracy"
+            value={result.metrics.citationAccuracy}
+          />
         </Col>
       </Row>
     </Card>
@@ -181,12 +197,17 @@ function WorkflowTrace({ activeStep, runStatus }) {
   return (
     <Card
       title="Agent Workflow Trace"
-      extra={<Badge status={statusColor[runStatus] || "default"} text={runStatus} />}
+      extra={
+        <Badge status={statusColor[runStatus] || "default"} text={runStatus} />
+      }
       className="panel-card trace-card"
     >
       <Timeline
         items={workflowSteps.map((step, index) => ({
-          color: getStepStatus(index, activeStep, runStatus) === "warning" ? "orange" : undefined,
+          color:
+            getStepStatus(index, activeStep, runStatus) === "warning"
+              ? "orange"
+              : undefined,
           children: (
             <Collapse
               ghost
@@ -196,7 +217,13 @@ function WorkflowTrace({ activeStep, runStatus }) {
                   label: (
                     <div className="trace-label">
                       <Text strong>{step.title}</Text>
-                      <Tag color={statusColor[getStepStatus(index, activeStep, runStatus)]}>
+                      <Tag
+                        color={
+                          statusColor[
+                            getStepStatus(index, activeStep, runStatus)
+                          ]
+                        }
+                      >
                         {getStepStatus(index, activeStep, runStatus)}
                       </Tag>
                     </div>
@@ -224,7 +251,9 @@ function CitationPanel({ citations, selectedCitation }) {
     <Row gutter={[16, 16]}>
       {citations.map((citation) => (
         <Col xs={24} lg={8} key={citation.id}>
-          <Card className={`citation-card ${selectedCitation === citation.id ? "selected" : ""}`}>
+          <Card
+            className={`citation-card ${selectedCitation === citation.id ? "selected" : ""}`}
+          >
             <Tag color="blue">[{citation.id}]</Tag>
             <Text strong>
               {citation.document}, page {citation.page}
@@ -249,8 +278,14 @@ function ChunksPanel({ chunks }) {
       render: (score) => (
         <Space>
           <Text>{score.toFixed(2)}</Text>
-          <Tag color={score > 0.9 ? "green" : score > 0.84 ? "gold" : "default"}>
-            {score > 0.9 ? "High relevance" : score > 0.84 ? "Medium relevance" : "Low relevance"}
+          <Tag
+            color={score > 0.9 ? "green" : score > 0.84 ? "gold" : "default"}
+          >
+            {score > 0.9
+              ? "High relevance"
+              : score > 0.84
+                ? "Medium relevance"
+                : "Low relevance"}
           </Tag>
         </Space>
       ),
@@ -258,11 +293,20 @@ function ChunksPanel({ chunks }) {
     { title: "Chunk Preview", dataIndex: "preview" },
   ];
 
-  return <Table columns={columns} dataSource={chunks} pagination={false} size="middle" />;
+  return (
+    <Table
+      columns={columns}
+      dataSource={chunks}
+      pagination={false}
+      size="middle"
+    />
+  );
 }
 
 function GuardrailsPanel({ checks, setRunStatus }) {
-  const hasWarning = checks.some((check) => check.status === "Warning" || check.status === "Failed");
+  const hasWarning = checks.some(
+    (check) => check.status === "Warning" || check.status === "Failed",
+  );
 
   return (
     <Space direction="vertical" size="middle" className="full-width">
@@ -270,13 +314,20 @@ function GuardrailsPanel({ checks, setRunStatus }) {
         <Card className="review-card">
           <Tag color="orange">Needs Human Review</Tag>
           <Title level={5}>Warning summary</Title>
-          <Paragraph>Unsupported claim and context sufficiency checks need review before the answer is finalized.</Paragraph>
+          <Paragraph>
+            Unsupported claim and context sufficiency checks need review before
+            the answer is finalized.
+          </Paragraph>
           <Space wrap>
             <Button type="primary" onClick={() => setRunStatus("Completed")}>
               Approve Answer
             </Button>
-            <Button onClick={() => setRunStatus("Running")}>Regenerate Answer</Button>
-            <Button onClick={() => setRunStatus("Needs Review")}>Edit Before Sending</Button>
+            <Button onClick={() => setRunStatus("Running")}>
+              Regenerate Answer
+            </Button>
+            <Button onClick={() => setRunStatus("Needs Review")}>
+              Edit Before Sending
+            </Button>
           </Space>
         </Card>
       )}
@@ -297,8 +348,7 @@ function GuardrailsPanel({ checks, setRunStatus }) {
   );
 }
 
-function Workspace() {
-  const [documents, setDocuments] = useState(initialDocuments);
+function Workspace({ documents, setDocuments }) {
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
   const [runStatus, setRunStatus] = useState("Idle");
@@ -313,30 +363,50 @@ function Workspace() {
     temperature: 0.2,
   });
 
-  const checks = result?.guardrails || defaultGuardrails;
-  const citations = result?.citations || defaultCitations;
-  const chunks = result?.chunks || retrievedChunks;
+  const checks = result?.guardrails || [];
+  const citations = result?.citations || [];
+  const chunks = result?.chunks || [];
   const isRunning = runStatus === "Running";
 
   const handleRun = async () => {
     setRunStatus("Running");
     setActiveStep(0);
-    const nextResult = await runMockAgent(query, settings, setActiveStep);
+    const nextResult = await runAgentWorkflow(query, settings, setActiveStep);
     setResult(nextResult);
-    setRunStatus(nextResult.guardrails.some((check) => check.status === "Warning" || check.status === "Failed") ? "Needs Review" : "Completed");
+    setRunStatus(
+      nextResult.guardrails.some(
+        (check) => check.status === "Warning" || check.status === "Failed",
+      )
+        ? "Needs Review"
+        : "Completed",
+    );
     setActiveStep(workflowSteps.length);
   };
 
   return (
     <div className="workspace-grid">
       <div className="workspace-main">
-        <DocumentUploadPanel documents={documents} setDocuments={setDocuments} />
-        <QueryPanel query={query} setQuery={setQuery} isRunning={isRunning} onRun={handleRun} />
-        <AnswerCard result={result} selectedCitation={selectedCitation} setSelectedCitation={setSelectedCitation} />
+        <DocumentUploadPanel
+          documents={documents}
+          setDocuments={setDocuments}
+        />
+        <QueryPanel
+          query={query}
+          setQuery={setQuery}
+          isRunning={isRunning}
+          onRun={handleRun}
+        />
+        <AnswerCard
+          result={result}
+          selectedCitation={selectedCitation}
+          setSelectedCitation={setSelectedCitation}
+        />
         <Card className="panel-card">
           <div className="guardrail-strip">
             <Tag color={runStatus === "Needs Review" ? "orange" : "green"}>
-              {runStatus === "Needs Review" ? "Needs Human Review" : "Citation coverage"}
+              {runStatus === "Needs Review"
+                ? "Needs Human Review"
+                : "Citation coverage"}
             </Tag>
             <Text type="secondary">
               {runStatus === "Needs Review"
@@ -345,7 +415,10 @@ function Workspace() {
             </Text>
             {runStatus === "Needs Review" && (
               <Space wrap>
-                <Button type="primary" onClick={() => setRunStatus("Completed")}>
+                <Button
+                  type="primary"
+                  onClick={() => setRunStatus("Completed")}
+                >
                   Approve Answer
                 </Button>
                 <Button onClick={handleRun}>Regenerate Answer</Button>
@@ -358,10 +431,47 @@ function Workspace() {
               {
                 key: "citations",
                 label: "Citations",
-                children: <CitationPanel citations={citations} selectedCitation={selectedCitation} />,
+                children: (
+                  result ? (
+                    <CitationPanel
+                      citations={citations}
+                      selectedCitation={selectedCitation}
+                    />
+                  ) : (
+                    <Card className="empty-state">
+                      Run a question to inspect citations from retrieved source
+                      chunks.
+                    </Card>
+                  )
+                ),
               },
-              { key: "chunks", label: "Retrieved Chunks", children: <ChunksPanel chunks={chunks} /> },
-              { key: "guardrails", label: "Guardrails", children: <GuardrailsPanel checks={checks} setRunStatus={setRunStatus} /> },
+              {
+                key: "chunks",
+                label: "Retrieved Chunks",
+                children: result ? (
+                  <ChunksPanel chunks={chunks} />
+                ) : (
+                  <Card className="empty-state">
+                    Retrieved chunks will appear after the FastAPI workflow runs.
+                  </Card>
+                ),
+              },
+              {
+                key: "guardrails",
+                label: "Guardrails",
+                children: (
+                  result ? (
+                    <GuardrailsPanel
+                      checks={checks}
+                      setRunStatus={setRunStatus}
+                    />
+                  ) : (
+                    <Card className="empty-state">
+                      Guardrail checks will appear after an answer is generated.
+                    </Card>
+                  )
+                ),
+              },
             ]}
           />
         </Card>
@@ -371,66 +481,130 @@ function Workspace() {
   );
 }
 
-function DocumentsPage() {
+function DocumentsPage({ documents }) {
   return (
     <Card title="Documents" className="panel-card">
       <Table
-        dataSource={initialDocuments}
+        dataSource={documents}
+        locale={{
+          emptyText:
+            "No documents uploaded yet. Upload a PDF from the Workspace page to index it locally.",
+        }}
         pagination={false}
         columns={[
           { title: "File name", dataIndex: "name" },
           { title: "File size", dataIndex: "size" },
-          { title: "Upload status", dataIndex: "status", render: (value) => <Tag color="blue">{value}</Tag> },
-          { title: "Fake chunk count", dataIndex: "chunks" },
-          { title: "Embedding status", dataIndex: "embeddingStatus", render: (value) => <Tag color="green">{value}</Tag> },
+          {
+            title: "Upload status",
+            dataIndex: "status",
+            render: (value) => <Tag color="blue">{value}</Tag>,
+          },
+          { title: "Chunk count", dataIndex: "chunks" },
+          {
+            title: "Embedding status",
+            dataIndex: "embeddingStatus",
+            render: (value) => <Tag color="green">{value}</Tag>,
+          },
         ]}
       />
     </Card>
   );
 }
 
-function EvaluationPage() {
+function EvaluationPage({ documents }) {
+  const hasDocuments = documents.length > 0;
+  const expectedSource = hasDocuments
+    ? `${documents[0].name} p.1`
+    : "Upload a PDF to generate sources";
+  const evaluatedCases = evaluationCases.map((evaluationCase) => ({
+    ...evaluationCase,
+    expectedSource,
+  }));
+
   const columns = [
     { title: "Case ID", dataIndex: "caseId" },
     { title: "Query Type", dataIndex: "queryType" },
     { title: "Expected Source", dataIndex: "expectedSource" },
-    { title: "Retrieval Passed", dataIndex: "retrievalPassed", render: (value) => <Tag color={value ? "green" : "red"}>{value ? "Yes" : "No"}</Tag> },
-    { title: "Faithfulness Score", dataIndex: "faithfulness", render: (value) => `${value}%` },
-    { title: "Citation Accuracy", dataIndex: "citationAccuracy", render: (value) => `${value}%` },
-    { title: "Status", dataIndex: "status", render: (value) => <Tag color={value === "Passed" ? "green" : value === "Review" ? "orange" : "red"}>{value}</Tag> },
+    {
+      title: "Retrieval Passed",
+      dataIndex: "retrievalPassed",
+      render: (value) => (
+        <Tag color={value ? "green" : "red"}>{value ? "Yes" : "No"}</Tag>
+      ),
+    },
+    {
+      title: "Faithfulness Score",
+      dataIndex: "faithfulness",
+      render: (value) => `${value}%`,
+    },
+    {
+      title: "Citation Accuracy",
+      dataIndex: "citationAccuracy",
+      render: (value) => `${value}%`,
+    },
+    {
+      title: "Status",
+      dataIndex: "status",
+      render: (value) => (
+        <Tag
+          color={
+            value === "Passed" ? "green" : value === "Review" ? "orange" : "red"
+          }
+        >
+          {value}
+        </Tag>
+      ),
+    },
   ];
 
   return (
     <Space direction="vertical" size="large" className="full-width">
       <Title level={2}>Evaluation Dashboard</Title>
-      <Row gutter={[16, 16]}>
-        {[
-          ["Retrieval Recall@5", 91],
-          ["Answer Faithfulness", 88],
-          ["Citation Accuracy", 92],
-          ["Guardrail Pass Rate", 84],
-        ].map(([label, value]) => (
-          <Col xs={24} md={12} xl={6} key={label}>
-            <Card>
-              <Statistic title={label} value={value} suffix="%" />
-              <Progress percent={value} />
-            </Card>
-          </Col>
-        ))}
-        <Col xs={24} md={12}>
-          <Card>
-            <Statistic title="Average Latency" value="2.8s" />
+      {!hasDocuments ? (
+        <Card className="empty-state">
+          <Title level={4}>No evaluation data yet</Title>
+          <Paragraph>
+            Upload at least one PDF from the Workspace page, then run the agent
+            workflow to populate retrieval, citation, faithfulness, and
+            guardrail evaluation results.
+          </Paragraph>
+        </Card>
+      ) : (
+        <>
+          <Row gutter={[16, 16]}>
+            {[
+              ["Retrieval Recall@5", 91],
+              ["Answer Faithfulness", 88],
+              ["Citation Accuracy", 92],
+              ["Guardrail Pass Rate", 84],
+            ].map(([label, value]) => (
+              <Col xs={24} md={12} xl={6} key={label}>
+                <Card>
+                  <Statistic title={label} value={value} suffix="%" />
+                  <Progress percent={value} />
+                </Card>
+              </Col>
+            ))}
+            <Col xs={24} md={12}>
+              <Card>
+                <Statistic title="Average Latency" value="2.8s" />
+              </Card>
+            </Col>
+            <Col xs={24} md={12}>
+              <Card>
+                <Statistic title="Average Cost per Query" value="$0.018" />
+              </Card>
+            </Col>
+          </Row>
+          <Card title="Evaluation Cases">
+            <Table
+              columns={columns}
+              dataSource={evaluatedCases}
+              pagination={false}
+            />
           </Card>
-        </Col>
-        <Col xs={24} md={12}>
-          <Card>
-            <Statistic title="Average Cost per Query" value="$0.018" />
-          </Card>
-        </Col>
-      </Row>
-      <Card title="Evaluation Cases">
-        <Table columns={columns} dataSource={evaluationCases} pagination={false} />
-      </Card>
+        </>
+      )}
     </Space>
   );
 }
@@ -440,7 +614,10 @@ function SettingsPage() {
     <Space direction="vertical" size="large" className="full-width">
       <Title level={2}>Settings</Title>
       <Card title="Runtime Settings" className="settings-card">
-        <Form layout="vertical" initialValues={{ model: "GPT-4.1", topK: 5, temperature: 0.2 }}>
+        <Form
+          layout="vertical"
+          initialValues={{ model: "GPT-4.1", topK: 5, temperature: 0.2 }}
+        >
           <Form.Item label="Model selector" name="model">
             <Select
               options={[
@@ -458,9 +635,15 @@ function SettingsPage() {
           </Form.Item>
           <Divider />
           <Space direction="vertical">
-            <Text>Enable guardrails <Switch defaultChecked /></Text>
-            <Text>Enable human review <Switch defaultChecked /></Text>
-            <Text>Enable trace logging <Switch defaultChecked /></Text>
+            <Text>
+              Enable guardrails <Switch defaultChecked />
+            </Text>
+            <Text>
+              Enable human review <Switch defaultChecked />
+            </Text>
+            <Text>
+              Enable trace logging <Switch defaultChecked />
+            </Text>
           </Space>
         </Form>
       </Card>
@@ -472,22 +655,28 @@ function TraceViewerPage() {
   return (
     <Space direction="vertical" size="large" className="full-width">
       <Title level={2}>Trace Viewer</Title>
-      <WorkflowTrace activeStep={workflowSteps.length} runStatus="Needs Review" />
+      <WorkflowTrace
+        activeStep={workflowSteps.length}
+        runStatus="Needs Review"
+      />
     </Space>
   );
 }
 
 function App() {
   const [page, setPage] = useState("workspace");
+  const [documents, setDocuments] = useState(initialDocuments);
   const content = useMemo(
     () => ({
-      workspace: <Workspace />,
-      documents: <DocumentsPage />,
+      workspace: (
+        <Workspace documents={documents} setDocuments={setDocuments} />
+      ),
+      documents: <DocumentsPage documents={documents} />,
       trace: <TraceViewerPage />,
-      evaluation: <EvaluationPage />,
+      evaluation: <EvaluationPage documents={documents} />,
       settings: <SettingsPage />,
     }),
-    []
+    [documents],
   );
 
   return (
@@ -509,8 +698,8 @@ function App() {
           ]}
         />
         <div className="sidebar-footer">
-          <Text type="secondary">Mock API Mode</Text>
-          <Segmented options={["Dev", "Demo"]} defaultValue="Demo" />
+          <Text type="secondary">FastAPI Mode</Text>
+          <Segmented options={["Local", "Demo"]} defaultValue="Local" />
         </div>
       </Sider>
       <Layout>
