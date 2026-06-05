@@ -137,6 +137,24 @@
   padding: 8px 12px;
 }
 
+.upload-feedback {
+  background: #f8fafc;
+  border: 1px solid #dbeafe;
+  border-radius: 8px;
+  margin-top: 12px;
+  padding: 10px 12px;
+}
+
+.upload-feedback.success {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.upload-feedback.error {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+
 .empty-state {
   background: #f8fafc;
   border-style: dashed;

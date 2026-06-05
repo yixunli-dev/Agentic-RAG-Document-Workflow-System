@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Badge,
   Button,
@@ -33,11 +33,33 @@ import {
   initialDocuments,
   workflowSteps,
 } from "./fixtures";
-import { runAgentWorkflow, uploadDocument } from "./apiClient";
+import { listDocuments, runAgentWorkflow, uploadDocument } from "./apiClient";
 
 const { Content, Sider } = Layout;
 const { Dragger } = Upload;
 const { Paragraph, Text, Title } = Typography;
+
+const defaultSettings = {
+  model: "GPT-4.1",
+  topK: 5,
+  guardrailsEnabled: true,
+  humanReviewEnabled: true,
+  traceLoggingEnabled: true,
+  temperature: 0.2,
+};
+
+const mergeDocuments = (...documentGroups) => {
+  const seen = new Set();
+  const merged = [];
+
+  documentGroups.flat().forEach((document) => {
+    if (!document?.id || seen.has(document.id)) return;
+    seen.add(document.id);
+    merged.push(document);
+  });
+
+  return merged;
+};
 
 const statusColor = {
   Pending: "default",
@@ -65,20 +87,43 @@ const getStepStatus = (index, activeIndex, runStatus) => {
 };
 
 function DocumentUploadPanel({ documents, setDocuments }) {
+  const [uploadState, setUploadState] = useState({
+    status: "idle",
+    names: [],
+    error: "",
+  });
+
   const uploadProps = {
     accept: ".pdf,application/pdf",
     multiple: true,
     showUploadList: false,
     beforeUpload: async (file, fileList) => {
       if (fileList[0]?.uid === file.uid) {
-        const uploadedDocuments = await Promise.all(
-          fileList.map(uploadDocument),
-        );
-        setDocuments((current) => [...uploadedDocuments, ...current]);
+        const names = fileList.map((uploadFile) => uploadFile.name);
+        setUploadState({ status: "uploading", names, error: "" });
+        try {
+          const uploadedDocuments = await Promise.all(
+            fileList.map(uploadDocument),
+          );
+          setDocuments((current) => mergeDocuments(uploadedDocuments, current));
+          setUploadState({
+            status: "success",
+            names: uploadedDocuments.map((document) => document.name),
+            error: "",
+          });
+        } catch (error) {
+          setUploadState({
+            status: "error",
+            names,
+            error: error.message || "Upload failed",
+          });
+        }
       }
       return false;
     },
   };
+
+  const uploadNames = uploadState.names.join(", ");
 
   return (
     <Card title="Document Intake" className="panel-card">
@@ -92,6 +137,33 @@ function DocumentUploadPanel({ documents, setDocuments }) {
           locally.
         </p>
       </Dragger>
+      {uploadState.status !== "idle" && (
+        <div className={`upload-feedback ${uploadState.status}`}>
+          <Space wrap>
+            <Tag
+              color={
+                uploadState.status === "success"
+                  ? "green"
+                  : uploadState.status === "error"
+                    ? "red"
+                    : "processing"
+              }
+            >
+              {uploadState.status === "success"
+                ? "Uploaded"
+                : uploadState.status === "error"
+                  ? "Upload failed"
+                  : "Uploading"}
+            </Tag>
+            <Text strong>
+              {uploadState.status === "success"
+                ? `Uploaded ${uploadNames}`
+                : uploadNames}
+            </Text>
+            {uploadState.error && <Text type="danger">{uploadState.error}</Text>}
+          </Space>
+        </div>
+      )}
       <div className="document-list">
         {documents.map((document) => (
           <div className="document-row" key={document.id}>
@@ -112,6 +184,8 @@ function DocumentUploadPanel({ documents, setDocuments }) {
 }
 
 function QueryPanel({ query, setQuery, isRunning, onRun }) {
+  const canRun = query.trim().length > 0;
+
   return (
     <Card title="Ask the Document Agent" className="panel-card">
       <Space direction="vertical" size="middle" className="full-width">
@@ -128,7 +202,13 @@ function QueryPanel({ query, setQuery, isRunning, onRun }) {
             </Button>
           ))}
         </Space>
-        <Button type="primary" size="large" loading={isRunning} onClick={onRun}>
+        <Button
+          type="primary"
+          size="large"
+          disabled={!canRun}
+          loading={isRunning}
+          onClick={onRun}
+        >
           Run Agent Workflow
         </Button>
       </Space>
@@ -348,40 +428,74 @@ function GuardrailsPanel({ checks, setRunStatus }) {
   );
 }
 
-function Workspace({ documents, setDocuments }) {
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
-  const [runStatus, setRunStatus] = useState("Idle");
-  const [activeStep, setActiveStep] = useState(-1);
-  const [selectedCitation, setSelectedCitation] = useState(1);
-  const [settings] = useState({
-    model: "GPT-4.1",
-    topK: 5,
-    guardrailsEnabled: true,
-    humanReviewEnabled: true,
-    traceLoggingEnabled: true,
-    temperature: 0.2,
-  });
-
+function Workspace({
+  documents,
+  setDocuments,
+  query,
+  setQuery,
+  result,
+  setResult,
+  runStatus,
+  setRunStatus,
+  activeStep,
+  setActiveStep,
+  selectedCitation,
+  setSelectedCitation,
+  settings,
+  runError,
+  setRunError,
+}) {
   const checks = result?.guardrails || [];
   const citations = result?.citations || [];
   const chunks = result?.chunks || [];
   const isRunning = runStatus === "Running";
 
   const handleRun = async () => {
+    if (!query.trim()) return;
+
     setRunStatus("Running");
     setActiveStep(0);
-    const nextResult = await runAgentWorkflow(query, settings, setActiveStep);
-    setResult(nextResult);
-    setRunStatus(
-      nextResult.guardrails.some(
-        (check) => check.status === "Warning" || check.status === "Failed",
-      )
-        ? "Needs Review"
-        : "Completed",
-    );
-    setActiveStep(workflowSteps.length);
+    setRunError("");
+    try {
+      const nextResult = await runAgentWorkflow(query, settings, setActiveStep);
+      setResult(nextResult);
+      setRunStatus(
+        nextResult.guardrails.some(
+          (check) => check.status === "Warning" || check.status === "Failed",
+        )
+          ? "Needs Review"
+          : "Completed",
+      );
+      setActiveStep(workflowSteps.length);
+    } catch (error) {
+      setRunStatus("Failed");
+      setActiveStep(-1);
+      setRunError(error.message || "Agent workflow failed.");
+    }
   };
+
+  const handleRegenerate = () => {
+    handleRun();
+  };
+
+  const guardrailColor =
+    runStatus === "Failed"
+      ? "red"
+      : runStatus === "Needs Review"
+        ? "orange"
+        : "green";
+  const guardrailText =
+    runStatus === "Failed"
+      ? "Workflow failed"
+      : runStatus === "Needs Review"
+        ? "Needs Human Review"
+        : "Citation coverage";
+  const guardrailDescription =
+    runStatus === "Failed"
+      ? runError || "The workflow request failed. Check the API server and try again."
+      : runStatus === "Needs Review"
+        ? "Warnings are present. Review the answer before final approval."
+        : "Every final response is checked for source coverage, unsupported claims, and context sufficiency.";
 
   return (
     <div className="workspace-grid">
@@ -403,15 +517,9 @@ function Workspace({ documents, setDocuments }) {
         />
         <Card className="panel-card">
           <div className="guardrail-strip">
-            <Tag color={runStatus === "Needs Review" ? "orange" : "green"}>
-              {runStatus === "Needs Review"
-                ? "Needs Human Review"
-                : "Citation coverage"}
-            </Tag>
-            <Text type="secondary">
-              {runStatus === "Needs Review"
-                ? "Warnings are present. Review the answer before final approval."
-                : "Every final response is checked for source coverage, unsupported claims, and context sufficiency."}
+            <Tag color={guardrailColor}>{guardrailText}</Tag>
+            <Text type={runStatus === "Failed" ? "danger" : "secondary"}>
+              {guardrailDescription}
             </Text>
             {runStatus === "Needs Review" && (
               <Space wrap>
@@ -421,7 +529,7 @@ function Workspace({ documents, setDocuments }) {
                 >
                   Approve Answer
                 </Button>
-                <Button onClick={handleRun}>Regenerate Answer</Button>
+                <Button onClick={handleRegenerate}>Regenerate Answer</Button>
                 <Button>Edit Before Sending</Button>
               </Space>
             )}
@@ -609,14 +717,17 @@ function EvaluationPage({ documents }) {
   );
 }
 
-function SettingsPage() {
+function SettingsPage({ settings, setSettings }) {
   return (
     <Space direction="vertical" size="large" className="full-width">
       <Title level={2}>Settings</Title>
       <Card title="Runtime Settings" className="settings-card">
         <Form
           layout="vertical"
-          initialValues={{ model: "GPT-4.1", topK: 5, temperature: 0.2 }}
+          initialValues={settings}
+          onValuesChange={(_, values) =>
+            setSettings((current) => ({ ...current, ...values }))
+          }
         >
           <Form.Item label="Model selector" name="model">
             <Select
@@ -635,15 +746,27 @@ function SettingsPage() {
           </Form.Item>
           <Divider />
           <Space direction="vertical">
-            <Text>
-              Enable guardrails <Switch defaultChecked />
-            </Text>
-            <Text>
-              Enable human review <Switch defaultChecked />
-            </Text>
-            <Text>
-              Enable trace logging <Switch defaultChecked />
-            </Text>
+            <Form.Item
+              label="Enable guardrails"
+              name="guardrailsEnabled"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              label="Enable human review"
+              name="humanReviewEnabled"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
+            <Form.Item
+              label="Enable trace logging"
+              name="traceLoggingEnabled"
+              valuePropName="checked"
+            >
+              <Switch />
+            </Form.Item>
           </Space>
         </Form>
       </Card>
@@ -651,14 +774,11 @@ function SettingsPage() {
   );
 }
 
-function TraceViewerPage() {
+function TraceViewerPage({ activeStep, runStatus }) {
   return (
     <Space direction="vertical" size="large" className="full-width">
       <Title level={2}>Trace Viewer</Title>
-      <WorkflowTrace
-        activeStep={workflowSteps.length}
-        runStatus="Needs Review"
-      />
+      <WorkflowTrace activeStep={activeStep} runStatus={runStatus} />
     </Space>
   );
 }
@@ -666,17 +786,67 @@ function TraceViewerPage() {
 function App() {
   const [page, setPage] = useState("workspace");
   const [documents, setDocuments] = useState(initialDocuments);
+  const [query, setQuery] = useState("");
+  const [result, setResult] = useState(null);
+  const [runStatus, setRunStatus] = useState("Idle");
+  const [activeStep, setActiveStep] = useState(-1);
+  const [selectedCitation, setSelectedCitation] = useState(1);
+  const [settings, setSettings] = useState(defaultSettings);
+  const [runError, setRunError] = useState("");
+
+  useEffect(() => {
+    let isCurrent = true;
+
+    listDocuments()
+      .then((indexedDocuments) => {
+        if (isCurrent)
+          setDocuments((current) => mergeDocuments(current, indexedDocuments));
+      })
+      .catch(() => {
+        if (isCurrent) setDocuments(initialDocuments);
+      });
+
+    return () => {
+      isCurrent = false;
+    };
+  }, []);
+
   const content = useMemo(
     () => ({
       workspace: (
-        <Workspace documents={documents} setDocuments={setDocuments} />
+        <Workspace
+          documents={documents}
+          setDocuments={setDocuments}
+          query={query}
+          setQuery={setQuery}
+          result={result}
+          setResult={setResult}
+          runStatus={runStatus}
+          setRunStatus={setRunStatus}
+          activeStep={activeStep}
+          setActiveStep={setActiveStep}
+          selectedCitation={selectedCitation}
+          setSelectedCitation={setSelectedCitation}
+          settings={settings}
+          runError={runError}
+          setRunError={setRunError}
+        />
       ),
       documents: <DocumentsPage documents={documents} />,
-      trace: <TraceViewerPage />,
+      trace: <TraceViewerPage activeStep={activeStep} runStatus={runStatus} />,
       evaluation: <EvaluationPage documents={documents} />,
-      settings: <SettingsPage />,
+      settings: <SettingsPage settings={settings} setSettings={setSettings} />,
     }),
-    [documents],
+    [
+      activeStep,
+      documents,
+      query,
+      result,
+      runError,
+      runStatus,
+      selectedCitation,
+      settings,
+    ],
   );
 
   return (

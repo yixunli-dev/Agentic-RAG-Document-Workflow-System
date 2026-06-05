@@ -65,6 +65,12 @@ beforeEach(() => {
         json: async () => agentRunResponse,
       };
     }
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({ documents: [] }),
+      };
+    }
     return {
       ok: true,
       json: async () => ({}),
@@ -111,6 +117,138 @@ test("simulates an agent run and displays cited answer details", async () => {
   expect(screen.getAllByText("Completed").length).toBeGreaterThan(0);
 });
 
+test("shows uploaded PDF feedback with the uploaded file name", async () => {
+  const uploadedDocument = {
+    id: "policy.pdf",
+    name: "policy.pdf",
+    size: "12 KB",
+    status: "Indexed",
+    chunks: 4,
+    embeddingStatus: "Ready",
+  };
+  global.fetch = vi.fn(async () => ({
+    ok: true,
+    json: async () => uploadedDocument,
+  }));
+
+  const { container } = render(<App />);
+  const input = container.querySelector('input[type="file"]');
+  const file = new File(["Refunds are available."], "policy.pdf", {
+    type: "application/pdf",
+  });
+
+  fireEvent.change(input, { target: { files: [file] } });
+
+  await waitFor(() =>
+    expect(screen.getByText("Uploaded policy.pdf")).toBeInTheDocument(),
+  );
+  expect(screen.getByText("policy.pdf")).toBeInTheDocument();
+});
+
+test("loads existing indexed documents from the backend", async () => {
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({
+          documents: [
+            {
+              id: "existing-policy",
+              name: "existing-policy.pdf",
+              size: "24 KB",
+              status: "Indexed",
+              chunks: 7,
+              embeddingStatus: "Embedded",
+            },
+          ],
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => agentRunResponse,
+    };
+  });
+
+  render(<App />);
+
+  await waitFor(() =>
+    expect(screen.getByText("existing-policy.pdf")).toBeInTheDocument(),
+  );
+});
+
+test("keeps an agent workflow result when navigating away during the run", async () => {
+  render(<App />);
+
+  fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
+    target: { value: "Find risky refund clauses" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /run agent workflow/i }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /documents/i }));
+
+  await waitFor(() =>
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/agent/runs"),
+      expect.anything(),
+    ),
+  );
+
+  fireEvent.click(screen.getByRole("menuitem", { name: /workspace/i }));
+
+  await waitFor(
+    () =>
+      expect(
+        screen.getByText(/Based on the retrieved document evidence/i),
+      ).toBeInTheDocument(),
+    { timeout: 5000 },
+  );
+});
+
+test("shows a failed workflow state when the agent run request fails", async () => {
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({ documents: [] }),
+      };
+    }
+    return {
+      ok: false,
+      json: async () => ({ detail: "Backend unavailable" }),
+    };
+  });
+
+  render(<App />);
+
+  fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
+    target: { value: "Find risky refund clauses" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /run agent workflow/i }));
+
+  await waitFor(() => expect(screen.getByText("Failed")).toBeInTheDocument());
+  expect(screen.getByText("Backend unavailable")).toBeInTheDocument();
+  await waitFor(() =>
+    expect(
+      screen.getByRole("button", { name: /run agent workflow/i }),
+    ).not.toHaveClass("ant-btn-loading"),
+  );
+});
+
+test("trace viewer reflects the current workflow state", async () => {
+  render(<App />);
+
+  fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
+    target: { value: "Find risky refund clauses" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /run agent workflow/i }));
+
+  await waitFor(() => expect(screen.getByText(/Based on the retrieved document evidence/i)).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("menuitem", { name: /trace viewer/i }));
+
+  expect(screen.getByRole("heading", { name: "Trace Viewer" })).toBeInTheDocument();
+  expect(screen.getByText("Needs Review")).toBeInTheDocument();
+});
+
 test("shows an empty evaluation state until PDFs are uploaded", () => {
   render(<App />);
 
@@ -127,4 +265,30 @@ test("shows configurable runtime settings", () => {
   expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
   expect(screen.getByText("GPT-4.1")).toBeInTheDocument();
   expect(within(screen.getByText("Retrieval top-k").closest(".ant-form-item")).getByRole("spinbutton")).toHaveValue("5");
+});
+
+test("sends updated runtime settings with an agent run", async () => {
+  render(<App />);
+
+  fireEvent.click(screen.getByRole("menuitem", { name: /settings/i }));
+  fireEvent.change(
+    within(screen.getByText("Retrieval top-k").closest(".ant-form-item")).getByRole("spinbutton"),
+    { target: { value: "2" } },
+  );
+  fireEvent.click(screen.getByRole("menuitem", { name: /workspace/i }));
+  fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
+    target: { value: "Find risky refund clauses" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /run agent workflow/i }));
+
+  await waitFor(() =>
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/agent/runs"),
+      expect.anything(),
+    ),
+  );
+  const [, request] = global.fetch.mock.calls.find(([url]) =>
+    String(url).includes("/api/agent/runs"),
+  );
+  expect(JSON.parse(request.body).settings.topK).toBe(2);
 });

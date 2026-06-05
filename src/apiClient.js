@@ -28,6 +28,15 @@ export const uploadDocument = async (file) => {
   return response.json();
 };
 
+export const listDocuments = async () => {
+  const response = await assertOk(
+    await fetch(`${API_BASE_URL}/api/documents`)
+  );
+
+  const body = await response.json();
+  return body.documents || [];
+};
+
 export const runAgentWorkflow = async (query, settings, onStep) => {
   workflowSteps.forEach((step, index) => {
     setTimeout(() => onStep(index), 180 * (index + 1));
