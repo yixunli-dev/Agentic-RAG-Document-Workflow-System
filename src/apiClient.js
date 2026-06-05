@@ -2,6 +2,19 @@ import { workflowSteps } from "./fixtures";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
+const fetchApi = async (url, options) => {
+  try {
+    return await fetch(url, options);
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error(
+        "FastAPI backend is unreachable. Start it with `npm run api` or `npm run dev:full`, then try again."
+      );
+    }
+    throw error;
+  }
+};
+
 const assertOk = async (response) => {
   if (response.ok) return response;
   let message = "API request failed";
@@ -19,7 +32,7 @@ export const uploadDocument = async (file) => {
   formData.append("file", file);
 
   const response = await assertOk(
-    await fetch(`${API_BASE_URL}/api/documents/upload`, {
+    await fetchApi(`${API_BASE_URL}/api/documents/upload`, {
       method: "POST",
       body: formData,
     })
@@ -30,7 +43,7 @@ export const uploadDocument = async (file) => {
 
 export const listDocuments = async () => {
   const response = await assertOk(
-    await fetch(`${API_BASE_URL}/api/documents`)
+    await fetchApi(`${API_BASE_URL}/api/documents`)
   );
 
   const body = await response.json();
@@ -38,21 +51,27 @@ export const listDocuments = async () => {
 };
 
 export const runAgentWorkflow = async (query, settings, onStep) => {
-  workflowSteps.forEach((step, index) => {
-    setTimeout(() => onStep(index), 180 * (index + 1));
-  });
-
-  const response = await assertOk(
-    await fetch(`${API_BASE_URL}/api/agent/runs`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ query, settings }),
-    })
+  const stepTimers = workflowSteps.map((step, index) =>
+    setTimeout(() => onStep(index), 180 * (index + 1))
   );
 
-  const result = await response.json();
-  onStep(workflowSteps.length);
-  return result;
+  try {
+    const response = await assertOk(
+      await fetchApi(`${API_BASE_URL}/api/agent/runs`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query, settings }),
+      })
+    );
+
+    const result = await response.json();
+    stepTimers.forEach(clearTimeout);
+    onStep(workflowSteps.length);
+    return result;
+  } catch (error) {
+    stepTimers.forEach(clearTimeout);
+    throw error;
+  }
 };

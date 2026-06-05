@@ -130,12 +130,25 @@ class DocumentStore:
             for row in rows
         ]
 
-    def search_chunks(self, query, top_k=5):
+    def search_chunks(self, query, top_k=5, document_ids=None):
         query_tokens = tokenize(query)
+        document_ids = [document_id for document_id in (document_ids or []) if document_id]
         with self._connect() as connection:
-            rows = connection.execute(
-                "SELECT document_name, page, chunk_index, text FROM chunks ORDER BY chunk_index ASC"
-            ).fetchall()
+            if document_ids:
+                placeholders = ",".join("?" for _ in document_ids)
+                rows = connection.execute(
+                    f"""
+                    SELECT document_name, page, chunk_index, text
+                    FROM chunks
+                    WHERE document_id IN ({placeholders})
+                    ORDER BY chunk_index ASC
+                    """,
+                    document_ids,
+                ).fetchall()
+            else:
+                rows = connection.execute(
+                    "SELECT document_name, page, chunk_index, text FROM chunks ORDER BY chunk_index ASC"
+                ).fetchall()
 
         scored = []
         for row in rows:
@@ -232,7 +245,8 @@ def build_guardrails(citations, settings):
 def run_agent_query(store, query, settings):
     start = time.perf_counter()
     top_k = int(settings.get("topK") or settings.get("top_k") or 5)
-    retrieved = store.search_chunks(query, top_k=top_k)
+    document_ids = settings.get("documentIds") or settings.get("document_ids") or []
+    retrieved = store.search_chunks(query, top_k=top_k, document_ids=document_ids)
 
     citations = [
         {

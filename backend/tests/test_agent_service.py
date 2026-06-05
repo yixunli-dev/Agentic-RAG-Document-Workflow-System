@@ -24,3 +24,24 @@ def test_run_agent_query_returns_frontend_contract(tmp_path):
     assert result["chunks"][0]["document"] == "agentic-rag-sample-policy.pdf"
     assert any(check["check"] == "Citation coverage" for check in result["guardrails"])
     assert result["metrics"]["guardrailStatus"] in {"Passed", "Needs Review"}
+
+
+def test_run_agent_query_limits_retrieval_to_selected_documents(tmp_path):
+    store = DocumentStore(tmp_path / "rag.sqlite")
+    excluded = store.add_document(
+        name="agentic-rag-sample-policy.pdf",
+        content="Refund disputes must be filed within seven days.",
+    )
+    selected = store.add_document(
+        name="policy.pdf",
+        content="Invoices must be paid within thirty days.",
+    )
+
+    result = run_agent_query(
+        store=store,
+        query="refund disputes invoices",
+        settings={"topK": 5, "documentIds": [selected["id"]]},
+    )
+
+    assert selected["name"] in {citation["document"] for citation in result["citations"]}
+    assert excluded["name"] not in {citation["document"] for citation in result["citations"]}

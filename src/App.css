@@ -121,6 +121,27 @@
   padding: 12px;
 }
 
+.document-row.selectable {
+  cursor: pointer;
+}
+
+.document-row.selectable:hover {
+  border-color: #93c5fd;
+  background: #f8fbff;
+}
+
+.selection-summary,
+.document-actions {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.selection-summary {
+  justify-content: space-between;
+  padding: 2px 4px;
+}
+
 .muted {
   color: #64748b;
   font-size: 12px;

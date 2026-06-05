@@ -3,6 +3,7 @@ import {
   Badge,
   Button,
   Card,
+  Checkbox,
   Col,
   Collapse,
   Divider,
@@ -86,7 +87,12 @@ const getStepStatus = (index, activeIndex, runStatus) => {
   return "pending";
 };
 
-function DocumentUploadPanel({ documents, setDocuments }) {
+function DocumentUploadPanel({
+  documents,
+  setDocuments,
+  selectedDocumentIds,
+  setSelectedDocumentIds,
+}) {
   const [uploadState, setUploadState] = useState({
     status: "idle",
     names: [],
@@ -106,6 +112,16 @@ function DocumentUploadPanel({ documents, setDocuments }) {
             fileList.map(uploadDocument),
           );
           setDocuments((current) => mergeDocuments(uploadedDocuments, current));
+          setSelectedDocumentIds((current) =>
+            Array.from(
+              new Set([
+                ...current,
+                ...uploadedDocuments
+                  .filter((document) => document.status === "Indexed")
+                  .map((document) => document.id),
+              ]),
+            ),
+          );
           setUploadState({
             status: "success",
             names: uploadedDocuments.map((document) => document.name),
@@ -166,25 +182,51 @@ function DocumentUploadPanel({ documents, setDocuments }) {
       )}
       <div className="document-list">
         {documents.map((document) => (
-          <div className="document-row" key={document.id}>
-            <div>
-              <Text strong>{document.name}</Text>
-              <div className="muted">{document.size}</div>
-            </div>
+          <label className="document-row selectable" key={document.id}>
+            <Space>
+              <Checkbox
+                aria-label={document.name}
+                checked={selectedDocumentIds.includes(document.id)}
+                disabled={document.status !== "Indexed"}
+                onChange={(event) => {
+                  setSelectedDocumentIds((current) =>
+                    event.target.checked
+                      ? Array.from(new Set([...current, document.id]))
+                      : current.filter((id) => id !== document.id),
+                  );
+                }}
+              />
+              <div>
+                <Text strong>{document.name}</Text>
+                <div className="muted">{document.size}</div>
+              </div>
+            </Space>
             <Space wrap>
+              {selectedDocumentIds.includes(document.id) && (
+                <Tag color="purple">Selected</Tag>
+              )}
               <Tag color="blue">{document.status}</Tag>
               <Tag color="geekblue">{document.chunks} chunks</Tag>
               <Tag color="green">{document.embeddingStatus}</Tag>
             </Space>
-          </div>
+          </label>
         ))}
+        {documents.length > 0 && (
+          <div className="selection-summary">
+            <Text strong>{selectedDocumentIds.length} selected</Text>
+            <Text type="secondary">
+              Workflow retrieval will use only selected indexed PDFs.
+            </Text>
+          </div>
+        )}
       </div>
     </Card>
   );
 }
 
-function QueryPanel({ query, setQuery, isRunning, onRun }) {
-  const canRun = query.trim().length > 0;
+function QueryPanel({ query, setQuery, isRunning, onRun, hasIndexedDocuments }) {
+  const hasQuery = query.trim().length > 0;
+  const canRun = hasQuery && hasIndexedDocuments;
 
   return (
     <Card title="Ask the Document Agent" className="panel-card">
@@ -211,6 +253,11 @@ function QueryPanel({ query, setQuery, isRunning, onRun }) {
         >
           Run Agent Workflow
         </Button>
+        {!hasIndexedDocuments && (
+          <Text type="secondary">
+            Upload and index at least one PDF before running the workflow.
+          </Text>
+        )}
       </Space>
     </Card>
   );
@@ -444,20 +491,27 @@ function Workspace({
   settings,
   runError,
   setRunError,
+  selectedDocumentIds,
+  setSelectedDocumentIds,
 }) {
   const checks = result?.guardrails || [];
   const citations = result?.citations || [];
   const chunks = result?.chunks || [];
   const isRunning = runStatus === "Running";
+  const hasIndexedDocuments = selectedDocumentIds.length > 0;
 
   const handleRun = async () => {
-    if (!query.trim()) return;
+    if (!query.trim() || !hasIndexedDocuments) return;
 
     setRunStatus("Running");
     setActiveStep(0);
     setRunError("");
     try {
-      const nextResult = await runAgentWorkflow(query, settings, setActiveStep);
+      const nextResult = await runAgentWorkflow(
+        query,
+        { ...settings, documentIds: selectedDocumentIds },
+        setActiveStep,
+      );
       setResult(nextResult);
       setRunStatus(
         nextResult.guardrails.some(
@@ -503,12 +557,15 @@ function Workspace({
         <DocumentUploadPanel
           documents={documents}
           setDocuments={setDocuments}
+          selectedDocumentIds={selectedDocumentIds}
+          setSelectedDocumentIds={setSelectedDocumentIds}
         />
         <QueryPanel
           query={query}
           setQuery={setQuery}
           isRunning={isRunning}
           onRun={handleRun}
+          hasIndexedDocuments={hasIndexedDocuments}
         />
         <AnswerCard
           result={result}
@@ -589,10 +646,39 @@ function Workspace({
   );
 }
 
-function DocumentsPage({ documents }) {
+function DocumentsPage({
+  documents,
+  selectedDocumentIds,
+  setSelectedDocumentIds,
+  onOpenWorkspace,
+}) {
+  const indexedIds = documents
+    .filter((document) => document.status === "Indexed")
+    .map((document) => document.id);
+
   return (
-    <Card title="Documents" className="panel-card">
+    <Card
+      title="Documents"
+      className="panel-card"
+      extra={
+        <Space wrap>
+          <Tag color="purple">{selectedDocumentIds.length} selected for workflow</Tag>
+          <Button onClick={onOpenWorkspace}>Open Workspace</Button>
+        </Space>
+      }
+    >
+      {documents.length > 0 && (
+        <Space className="document-actions" wrap>
+          <Button onClick={() => setSelectedDocumentIds(indexedIds)}>
+            Select all indexed
+          </Button>
+          <Button onClick={() => setSelectedDocumentIds([])}>
+            Clear selection
+          </Button>
+        </Space>
+      )}
       <Table
+        rowKey="id"
         dataSource={documents}
         locale={{
           emptyText:
@@ -600,6 +686,24 @@ function DocumentsPage({ documents }) {
         }}
         pagination={false}
         columns={[
+          {
+            title: "Use",
+            width: 72,
+            render: (_, document) => (
+              <Checkbox
+                aria-label={`select row ${document.name}`}
+                checked={selectedDocumentIds.includes(document.id)}
+                disabled={document.status !== "Indexed"}
+                onChange={(event) => {
+                  setSelectedDocumentIds((current) =>
+                    event.target.checked
+                      ? Array.from(new Set([...current, document.id]))
+                      : current.filter((id) => id !== document.id),
+                  );
+                }}
+              />
+            ),
+          },
           { title: "File name", dataIndex: "name" },
           { title: "File size", dataIndex: "size" },
           {
@@ -786,6 +890,7 @@ function TraceViewerPage({ activeStep, runStatus }) {
 function App() {
   const [page, setPage] = useState("workspace");
   const [documents, setDocuments] = useState(initialDocuments);
+  const [selectedDocumentIds, setSelectedDocumentIds] = useState([]);
   const [query, setQuery] = useState("");
   const [result, setResult] = useState(null);
   const [runStatus, setRunStatus] = useState("Idle");
@@ -799,8 +904,15 @@ function App() {
 
     listDocuments()
       .then((indexedDocuments) => {
-        if (isCurrent)
+        if (isCurrent) {
           setDocuments((current) => mergeDocuments(current, indexedDocuments));
+          setSelectedDocumentIds((current) => {
+            if (current.length > 0) return current;
+            return indexedDocuments
+              .filter((document) => document.status === "Indexed")
+              .map((document) => document.id);
+          });
+        }
       })
       .catch(() => {
         if (isCurrent) setDocuments(initialDocuments);
@@ -830,9 +942,18 @@ function App() {
           settings={settings}
           runError={runError}
           setRunError={setRunError}
+          selectedDocumentIds={selectedDocumentIds}
+          setSelectedDocumentIds={setSelectedDocumentIds}
         />
       ),
-      documents: <DocumentsPage documents={documents} />,
+      documents: (
+        <DocumentsPage
+          documents={documents}
+          selectedDocumentIds={selectedDocumentIds}
+          setSelectedDocumentIds={setSelectedDocumentIds}
+          onOpenWorkspace={() => setPage("workspace")}
+        />
+      ),
       trace: <TraceViewerPage activeStep={activeStep} runStatus={runStatus} />,
       evaluation: <EvaluationPage documents={documents} />,
       settings: <SettingsPage settings={settings} setSettings={setSettings} />,
@@ -845,6 +966,7 @@ function App() {
       runError,
       runStatus,
       selectedCitation,
+      selectedDocumentIds,
       settings,
     ],
   );

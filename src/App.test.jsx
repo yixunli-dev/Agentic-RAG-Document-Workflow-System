@@ -57,6 +57,24 @@ const agentRunResponse = {
   },
 };
 
+const indexedDocument = {
+  id: "agentic-rag-sample-policy",
+  name: "agentic-rag-sample-policy.pdf",
+  size: "24 KB",
+  status: "Indexed",
+  chunks: 7,
+  embeddingStatus: "Embedded",
+};
+
+const secondIndexedDocument = {
+  id: "policy",
+  name: "policy.pdf",
+  size: "60 B",
+  status: "Indexed",
+  chunks: 1,
+  embeddingStatus: "Embedded",
+};
+
 beforeEach(() => {
   global.fetch = vi.fn(async (url) => {
     if (String(url).includes("/api/agent/runs")) {
@@ -68,7 +86,7 @@ beforeEach(() => {
     if (String(url).includes("/api/documents")) {
       return {
         ok: true,
-        json: async () => ({ documents: [] }),
+        json: async () => ({ documents: [indexedDocument] }),
       };
     }
     return {
@@ -81,6 +99,12 @@ beforeEach(() => {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+const waitForIndexedDocument = async () => {
+  await waitFor(() =>
+    expect(screen.getByText("agentic-rag-sample-policy.pdf")).toBeInTheDocument(),
+  );
+};
 
 test("renders the agentic RAG workspace shell", () => {
   render(<App />);
@@ -97,6 +121,7 @@ test("renders the agentic RAG workspace shell", () => {
 
 test("simulates an agent run and displays cited answer details", async () => {
   render(<App />);
+  await waitForIndexedDocument();
 
   fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
     target: { value: "Find risky refund clauses" },
@@ -145,6 +170,41 @@ test("shows uploaded PDF feedback with the uploaded file name", async () => {
   expect(screen.getByText("policy.pdf")).toBeInTheDocument();
 });
 
+test("keeps agent workflow disabled after an upload fails with no indexed documents", async () => {
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes("/api/documents/upload")) {
+      throw new TypeError("Failed to fetch");
+    }
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({ documents: [] }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => agentRunResponse,
+    };
+  });
+
+  const { container } = render(<App />);
+  const input = container.querySelector('input[type="file"]');
+  const file = new File(["Refunds are available."], "policy.pdf", {
+    type: "application/pdf",
+  });
+
+  fireEvent.change(input, { target: { files: [file] } });
+  fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
+    target: { value: "Find risky refund clauses" },
+  });
+
+  await waitFor(() => expect(screen.getByText("Upload failed")).toBeInTheDocument());
+  expect(screen.getByText(/FastAPI backend is unreachable/i)).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: /run agent workflow/i }),
+  ).toBeDisabled();
+});
+
 test("loads existing indexed documents from the backend", async () => {
   global.fetch = vi.fn(async (url) => {
     if (String(url).includes("/api/documents")) {
@@ -179,6 +239,7 @@ test("loads existing indexed documents from the backend", async () => {
 
 test("keeps an agent workflow result when navigating away during the run", async () => {
   render(<App />);
+  await waitForIndexedDocument();
 
   fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
     target: { value: "Find risky refund clauses" },
@@ -209,7 +270,7 @@ test("shows a failed workflow state when the agent run request fails", async () 
     if (String(url).includes("/api/documents")) {
       return {
         ok: true,
-        json: async () => ({ documents: [] }),
+        json: async () => ({ documents: [indexedDocument] }),
       };
     }
     return {
@@ -219,6 +280,7 @@ test("shows a failed workflow state when the agent run request fails", async () 
   });
 
   render(<App />);
+  await waitForIndexedDocument();
 
   fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
     target: { value: "Find risky refund clauses" },
@@ -236,6 +298,7 @@ test("shows a failed workflow state when the agent run request fails", async () 
 
 test("trace viewer reflects the current workflow state", async () => {
   render(<App />);
+  await waitForIndexedDocument();
 
   fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
     target: { value: "Find risky refund clauses" },
@@ -250,6 +313,19 @@ test("trace viewer reflects the current workflow state", async () => {
 });
 
 test("shows an empty evaluation state until PDFs are uploaded", () => {
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({ documents: [] }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => agentRunResponse,
+    };
+  });
+
   render(<App />);
 
   fireEvent.click(screen.getByRole("menuitem", { name: /evaluation/i }));
@@ -269,6 +345,7 @@ test("shows configurable runtime settings", () => {
 
 test("sends updated runtime settings with an agent run", async () => {
   render(<App />);
+  await waitForIndexedDocument();
 
   fireEvent.click(screen.getByRole("menuitem", { name: /settings/i }));
   fireEvent.change(
@@ -291,4 +368,74 @@ test("sends updated runtime settings with an agent run", async () => {
     String(url).includes("/api/agent/runs"),
   );
   expect(JSON.parse(request.body).settings.topK).toBe(2);
+});
+
+test("lets users select which indexed documents are used for workflow", async () => {
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({
+          documents: [indexedDocument, secondIndexedDocument],
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => agentRunResponse,
+    };
+  });
+
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByText("policy.pdf")).toBeInTheDocument());
+  expect(screen.getByText("2 selected")).toBeInTheDocument();
+
+  fireEvent.click(screen.getByRole("checkbox", { name: "policy.pdf" }));
+  expect(screen.getByText("1 selected")).toBeInTheDocument();
+
+  fireEvent.change(screen.getByPlaceholderText(/compare the refund policy/i), {
+    target: { value: "Find risky refund clauses" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: /run agent workflow/i }));
+
+  await waitFor(() =>
+    expect(global.fetch).toHaveBeenCalledWith(
+      expect.stringContaining("/api/agent/runs"),
+      expect.anything(),
+    ),
+  );
+  const [, request] = global.fetch.mock.calls.find(([url]) =>
+    String(url).includes("/api/agent/runs"),
+  );
+  expect(JSON.parse(request.body).settings.documentIds).toEqual([
+    indexedDocument.id,
+  ]);
+});
+
+test("documents page supports selecting documents for the workspace", async () => {
+  global.fetch = vi.fn(async (url) => {
+    if (String(url).includes("/api/documents")) {
+      return {
+        ok: true,
+        json: async () => ({
+          documents: [indexedDocument, secondIndexedDocument],
+        }),
+      };
+    }
+    return {
+      ok: true,
+      json: async () => agentRunResponse,
+    };
+  });
+
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByText("policy.pdf")).toBeInTheDocument());
+  fireEvent.click(screen.getByRole("menuitem", { name: /documents/i }));
+  expect(screen.getByText("2 selected for workflow")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("checkbox", { name: /select row policy.pdf/i }));
+  expect(screen.getByText("1 selected for workflow")).toBeInTheDocument();
+  fireEvent.click(screen.getByRole("button", { name: /open workspace/i }));
+  expect(screen.getByText("1 selected")).toBeInTheDocument();
 });
