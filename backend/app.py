@@ -4,7 +4,11 @@ from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
-from backend.agent_service import DocumentStore, run_agent_query
+from backend.agent_service import DocumentStore, index_document_for_retrieval, run_agent_query
+from backend.exceptions import ApplicationError
+from backend.services.embedding_service import EmbeddingService
+from backend.services.llm_service import LLMService
+from backend.services.vector_store_service import VectorStoreService
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -16,6 +20,9 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 
 app = FastAPI(title="Agentic RAG Document Workflow API", version="1.0.0")
 store = DocumentStore(DB_PATH)
+embedding_service = EmbeddingService()
+vector_store = VectorStoreService()
+llm_service = LLMService()
 
 app.add_middleware(
     CORSMiddleware,
@@ -48,7 +55,27 @@ def extract_text_from_pdf(path):
 
 @app.get("/api/health")
 def health():
-    return {"status": "ok"}
+    services = {"api": "ok"}
+    try:
+        with store._connect() as connection:
+            connection.execute("SELECT 1").fetchone()
+        services["sqlite"] = "ok"
+    except Exception:
+        services["sqlite"] = "unavailable"
+
+    try:
+        services["embedding_model"] = "ok" if embedding_service.dimension else "unknown"
+    except Exception:
+        services["embedding_model"] = "unavailable"
+
+    try:
+        services["qdrant"] = "ok" if vector_store.collection_exists() else "missing_collection"
+    except Exception:
+        services["qdrant"] = "unavailable"
+
+    services.update(llm_service.health())
+    status = "ok" if all(value == "ok" for value in services.values()) else "degraded"
+    return {"status": status, "services": services}
 
 
 @app.get("/api/documents")
@@ -70,10 +97,29 @@ async def upload_document(file: UploadFile = File(...)):
     if not extracted_text.strip():
         extracted_text = f"Uploaded file {safe_name} did not contain extractable text."
 
-    document = store.add_document(name=safe_name, content=extracted_text, size_bytes=len(content))
-    return document
+    try:
+        return index_document_for_retrieval(
+            store=store,
+            vector_store=vector_store,
+            embedding_service=embedding_service,
+            name=safe_name,
+            content=extracted_text,
+            size_bytes=len(content),
+        )
+    except ApplicationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error
 
 
 @app.post("/api/agent/runs")
 def create_agent_run(request: AgentRunRequest):
-    return run_agent_query(store=store, query=request.query, settings=request.settings)
+    try:
+        return run_agent_query(
+            store=store,
+            query=request.query,
+            settings=request.settings,
+            embedding_service=embedding_service,
+            vector_store=vector_store,
+            llm_service=llm_service,
+        )
+    except ApplicationError as error:
+        raise HTTPException(status_code=error.status_code, detail=error.message) from error

@@ -1,119 +1,99 @@
 # Agentic RAG Document Workflow System
 
-A production-style full-stack application for an agentic Retrieval-Augmented Generation document workflow platform. The application lets users upload PDFs, ask document-related questions, retrieve grounded evidence, generate cited answers, run verification checks, surface guardrail warnings, and expose evaluation metrics.
+A full-stack local AI document workflow app for uploading PDFs, indexing their text into a vector database, retrieving relevant evidence, and generating grounded answers with citations. The system is intentionally local-first: React UI, FastAPI, SQLite, Qdrant Local, Sentence Transformers, and Ollama.
 
-This version is intentionally built as a no-paid-API MVP. It uses FastAPI, local file storage, SQLite, PDF text extraction, and lightweight keyword retrieval. It does not require OpenAI, LangChain, LangGraph, or a hosted vector database.
+## What It Does
 
-## Highlights
+- Upload PDFs through the React workspace UI.
+- Extract text with FastAPI and `pypdf`.
+- Chunk document text and persist document/chunk metadata in SQLite.
+- Embed chunks with a lazy-loaded Sentence Transformers model.
+- Store vectors in persistent Qdrant Local.
+- Run semantic retrieval only against user-selected documents.
+- Generate grounded answers with local Ollama chat models.
+- Return citations, retrieved chunks, guardrail checks, metrics, and workflow steps to the existing UI contract.
+- Mark uploads as `Indexed` only after embedding and Qdrant upsert succeed.
+- Keep failed uploads in a visible `Failed` state so the workflow cannot treat them as ready documents.
 
-- PDF document intake experience backed by a real FastAPI upload endpoint
-- Local PDF text extraction, chunking, and SQLite indexing
-- Query workspace for document analysis, comparison, extraction, and risk review
-- Agent workflow trace with step status, latency, component/model metadata, and expandable details
-- Cited answer card with clickable inline citation markers
-- Retrieved source chunks table with local relevance scoring
-- Guardrail panel for citation coverage, unsupported claims, prompt injection, sensitive actions, and context sufficiency
-- Human review state with local approve/regenerate/edit actions
-- Evaluation dashboard with recall, faithfulness, citation accuracy, latency, cost, and guardrail metrics
-- Settings page for model selection, retrieval top-k, guardrails, review, trace logging, and temperature
-- Vite-powered React app with Vitest coverage
-- FastAPI service tests with pytest
+## Current Scope
 
-## Product Scope
+Implemented:
 
-The goal is not to build a basic "chat with PDF" demo. The interface is designed to look and behave like an AI document workflow platform that could later connect to a real FastAPI backend and agent runtime.
+- React 18 + Vite + Ant Design frontend
+- FastAPI backend
+- SQLite document/chunk store
+- Local PDF extraction
+- Sentence Transformers embeddings
+- Qdrant Local vector search
+- Ollama local answer generation
+- Deterministic guardrails for citation coverage, prompt injection phrases, sensitive actions, unsupported citations, and context sufficiency
+- Backend and frontend tests
 
-Current implementation:
+Deliberately not included:
 
-- Frontend: React + Vite
-- UI system: Ant Design
-- Backend: FastAPI
-- Storage: local uploads folder + SQLite
-- Retrieval: local keyword-overlap retrieval
-- Agent execution: deterministic no-cost workflow service
-- PDF parsing: `pypdf`
-
-Out of scope for this version:
-
-- Real LLM calls
-- Real embeddings
-- Real vector search
-- Real LangChain or LangGraph orchestration
-- Real authentication, billing, or persistent storage
+- LangGraph orchestration
+- Hosted vector databases
+- Paid or cloud LLM APIs
+- Auth, billing, streaming, or multi-user workspace management
+- New pages beyond the current product surface
 
 ## Tech Stack
 
 | Area | Technology |
 | --- | --- |
-| Framework | React 18 |
-| Build Tool | Vite |
-| UI Components | Ant Design |
+| Frontend | React 18, Vite, Ant Design |
 | API | FastAPI |
-| Storage | SQLite, local filesystem |
+| Storage | SQLite, local uploads folder |
 | PDF Parsing | pypdf |
-| Testing | Vitest, Testing Library, jsdom |
-| Backend Testing | pytest, FastAPI TestClient |
-| Styling | CSS modules/global CSS |
-| Retrieval | Local lexical scoring |
+| Embeddings | sentence-transformers |
+| Vector Store | Qdrant Local |
+| Generation | Ollama |
+| Backend Tests | pytest, FastAPI TestClient |
+| Frontend Tests | Vitest, Testing Library, jsdom |
 
 ## Architecture
 
 ```text
-src/
-  App.jsx          Main application shell, pages, and UI panels
-  App.css          Dashboard layout and visual styling
-  main.jsx         Vite React entrypoint
-  apiClient.js     Frontend API adapter for FastAPI endpoints
-  fixtures.js      UI fixtures for workflow labels, settings, and evaluation cases
-  App.test.jsx     Workspace, agent run, evaluation, and settings tests
-  setupTests.js    jsdom test environment setup
+PDF upload
+  -> FastAPI stores file
+  -> pypdf extracts text by page
+  -> backend.agent_service chunks text
+  -> SQLite stores document and chunk metadata
+  -> Sentence Transformers embeds chunks
+  -> Qdrant Local stores vectors and payloads
+  -> UI shows Indexed only after vector upsert succeeds
 
-backend/
-  app.py           FastAPI app and HTTP endpoints
-  agent_service.py SQLite store, chunking, retrieval, guardrails, and response assembly
-  tests/           Backend service and endpoint tests
+Run Agent Workflow
+  -> Frontend sends query + selected documentIds
+  -> Backend embeds query
+  -> Qdrant searches only selected documents
+  -> Low-relevance or empty context returns an evidence-insufficient answer
+  -> Ollama generates an answer from numbered context
+  -> Guardrails validate citations and retrieved evidence
+  -> API returns the existing answer/citations/chunks/guardrails/metrics shape
 ```
 
-The frontend is organized around a stable backend contract:
+Important backend files:
 
-1. Upload events create document metadata in local state.
-2. Query submission calls `runMockAgent`, which now posts to FastAPI.
-3. The frontend emits staged workflow progress for the trace UI.
-4. The UI renders answer, citations, chunks, metrics, and guardrail results.
-5. Review actions update local UI state only.
+```text
+backend/app.py                         FastAPI endpoints and service wiring
+backend/agent_service.py               SQLite store, chunking, retrieval flow, guardrails, response assembly
+backend/services/embedding_service.py  Lazy Sentence Transformers wrapper
+backend/services/vector_store_service.py Persistent Qdrant Local wrapper
+backend/services/llm_service.py        Ollama chat wrapper and grounded prompt
+backend/scripts/reindex_documents.py   Rebuild Qdrant vectors from SQLite chunks
+```
 
-`src/apiClient.js` owns the frontend-to-FastAPI boundary for document uploads and agent workflow runs.
-
-## Agent Workflow Simulation
-
-The application models the following execution trace:
-
-1. Intent Router
-2. Retrieval Agent
-3. Answer Agent
-4. Citation Agent
-5. Verifier Agent
-6. Guardrail Check
-7. Human Review
-8. Final Response
-
-Each step includes:
-
-- Status
-- Description
-- Latency
-- Selected model or component
-- Expandable implementation details
-
-## Getting Started
+## Local Setup
 
 ### Prerequisites
 
 - Node.js 18+
 - npm
 - Python 3.9+
+- Ollama installed locally
 
-### Install dependencies
+### Install frontend dependencies
 
 ```bash
 npm install
@@ -125,16 +105,55 @@ npm install
 python3 -m pip install -r requirements.txt
 ```
 
+### Configure environment
+
+```bash
+cp .env.example .env
+```
+
+Defaults:
+
+```text
+VITE_API_BASE_URL=http://127.0.0.1:8000
+EMBEDDING_MODEL=sentence-transformers/all-MiniLM-L6-v2
+QDRANT_PATH=backend/data/qdrant
+QDRANT_COLLECTION=document_chunks
+OLLAMA_BASE_URL=http://localhost:11434
+OLLAMA_CHAT_MODEL=llama3.2:3b
+RETRIEVAL_TOP_K=5
+MIN_RELEVANCE_SCORE=0.25
+MAX_CONTEXT_CHARACTERS=12000
+OLLAMA_TIMEOUT_SECONDS=45
+```
+
+### Start Ollama
+
+```bash
+ollama serve
+```
+
+In another terminal, make sure the configured model exists:
+
+```bash
+ollama pull llama3.2:3b
+```
+
 ### Start the backend API
 
 ```bash
 npm run api
 ```
 
-FastAPI runs on:
+FastAPI runs at:
 
 ```text
 http://127.0.0.1:8000
+```
+
+Health endpoint:
+
+```text
+http://127.0.0.1:8000/api/health
 ```
 
 Swagger docs:
@@ -149,13 +168,11 @@ http://127.0.0.1:8000/docs
 npm run dev
 ```
 
-Vite will print a local URL, usually:
+Vite usually runs at:
 
 ```text
 http://localhost:5173/
 ```
-
-If port `5173` is unavailable, Vite may choose another port. Use the URL printed in your terminal.
 
 ### Start frontend and backend together
 
@@ -163,15 +180,17 @@ If port `5173` is unavailable, Vite may choose another port. Use the URL printed
 npm run dev:full
 ```
 
-### Try the sample PDF
+## Using The App
 
-Upload this file from the Workspace page:
+1. Open the Workspace page.
+2. Upload a PDF, for example `sample-documents/agentic-rag-sample-policy.pdf`.
+3. Wait for the document to show `Indexed` and `Embedded`.
+4. Select the document in the document list.
+5. Ask a grounded question.
+6. Click `Run Agent Workflow`.
+7. Review the answer, citations, retrieved chunks, guardrails, and metrics.
 
-```text
-sample-documents/agentic-rag-sample-policy.pdf
-```
-
-Example questions:
+Example prompts:
 
 ```text
 Compare the refund policy and identify risky clauses.
@@ -181,46 +200,20 @@ Compare the refund policy and identify risky clauses.
 Extract parties, payment terms, refund window, and risky clauses.
 ```
 
-### Build for production
-
-```bash
-npm run build
+```text
+What does the selected document say about cancellation or termination?
 ```
-
-The production build is emitted to `dist/`.
-
-### Run tests
-
-```bash
-npm test
-```
-
-### Run backend tests
-
-```bash
-python3 -m pytest backend/tests
-```
-
-The test suite verifies:
-
-- Main workspace rendering
-- Mock agent workflow execution
-- Cited answer and review state
-- Evaluation dashboard
-- Settings page controls
 
 ## API Contract
 
-The React app currently calls these FastAPI endpoints:
-
 | Endpoint | Purpose |
 | --- | --- |
-| `GET /api/health` | Backend health check |
-| `POST /api/documents/upload` | Upload a PDF and return document metadata |
-| `GET /api/documents` | List indexed documents |
-| `POST /api/agent/runs` | Run retrieval, answer assembly, citations, guardrails, and metrics |
+| `GET /api/health` | Reports API, SQLite, embedding model, Qdrant, and Ollama health |
+| `GET /api/documents` | Lists document metadata |
+| `POST /api/documents/upload` | Uploads, extracts, chunks, embeds, and indexes a PDF |
+| `POST /api/agent/runs` | Runs semantic retrieval, local generation, citations, guardrails, and metrics |
 
-The response from `POST /api/agent/runs` keeps the frontend contract:
+`POST /api/agent/runs` keeps the frontend-compatible fields:
 
 - `answer`
 - `citations`
@@ -228,21 +221,64 @@ The response from `POST /api/agent/runs` keeps the frontend contract:
 - `guardrails`
 - `metrics`
 
-## Future Upgrade Path
+It also returns richer backend fields such as:
 
-The no-cost backend is intentionally simple. A production upgrade can replace individual layers without changing the UI:
+- `steps`
+- `retrievedChunks`
+- `latencyMs`
+- `tokenUsage`
+- `costUsd`
 
-1. Replace keyword scoring with embeddings and a vector database.
-2. Replace deterministic answer assembly with an LLM call.
-3. Stream trace events from the backend instead of simulating progress in the frontend.
-4. Add run persistence, authentication, user workspaces, and deployment configuration.
+## Reindexing
 
-## Engineering Notes
+If you change `EMBEDDING_MODEL`, delete Qdrant data, or need to rebuild vectors from existing SQLite chunks:
 
-- The current backend is free to run locally and does not call paid AI APIs.
-- `backend/data/` is ignored because it stores generated SQLite and uploaded files.
-- `dist/` is ignored because it is a generated Vite build artifact.
-- Large bundle warnings may appear because Ant Design is a full UI component system. The app still builds successfully; future optimization can use route-level code splitting and manual chunks.
+```bash
+python3 -m backend.scripts.reindex_documents
+```
+
+The script reads `backend/data/rag.sqlite`, embeds all stored chunks, rebuilds vectors in Qdrant Local, and marks documents as `Indexed` / `Embedded`.
+
+## Testing
+
+Run backend tests:
+
+```bash
+python3 -m pytest backend/tests
+```
+
+Run frontend tests:
+
+```bash
+npm test
+```
+
+Build production frontend:
+
+```bash
+npm run build
+```
+
+The backend tests use fakes for embeddings, vector search, and Ollama so CI-style verification does not need model downloads.
+
+## Troubleshooting
+
+- `Embedding model could not be loaded`: install backend dependencies and allow Sentence Transformers to download the configured model.
+- `Qdrant Local could not be initialized`: check `QDRANT_PATH` and local write permissions under `backend/data/`.
+- `Qdrant collection vector size is ... expected ...`: run `python3 -m backend.scripts.reindex_documents` after changing embedding models.
+- `Local Ollama generation is unavailable`: start Ollama and pull the configured `OLLAMA_CHAT_MODEL`.
+- Upload shows `Failed`: indexing did not complete, so the document is intentionally blocked from normal workflow use.
+- No citations returned: select at least one indexed document and ask a question supported by the selected document context.
+
+## Interview Talking Points
+
+- This is not just a static UI demo. The upload, indexing, retrieval, generation, and guardrail flow is backed by real FastAPI services.
+- SQLite stores durable document metadata and chunks, while Qdrant stores semantic vectors for retrieval.
+- The embedding model is lazy-loaded so the server can start before the model is needed.
+- Retrieval is scoped by selected document IDs, which prevents accidental cross-document leakage.
+- The answer generation prompt treats retrieved PDF text as untrusted data and requires citation markers.
+- Guardrails are deterministic and explainable, which makes failures visible in the UI.
+- The project keeps the frontend contract stable while replacing the earlier keyword mock with real local AI infrastructure.
 
 ## Repository
 
